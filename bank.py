@@ -1,56 +1,157 @@
-option = 1
-saldo = 0
-limite = 500
-extrato = ""
-numero_saques = 0
-LIMITE_SAQUES = 3
+from abc import ABC, abstractmethod
+from datetime import datetime
 
-def depositar_dinheiro(quantia, saldo, limite, extrato):
-    if quantia > limite:
-        print("Voce não tem essa quantia")
-        return saldo, limite, extrato
-    saldo += quantia
-    limite -= quantia
-    extrato += f"Depósito : R$ {quantia:.2f}\n"
-    print(f"Quantia depositada! \nSaldo Atual: {saldo}\nLimite Atual: {limite}")
-    return saldo, limite, extrato
+class Cliente:
+    def __init__(self, endereco):
+        self.endereco = endereco
+        self.contas = []
 
-def sacar_dinheiro(quantia, saldo, numero_saques, limite, extrato):
-    if numero_saques >= LIMITE_SAQUES:
-        print("Você atingiu o limite diário de saques!")
-        return saldo, numero_saques
-    if quantia > saldo:
-        print("Saldo insuficiente!")
-        return saldo, numero_saques
-    saldo -= quantia
-    limite += quantia
-    numero_saques += 1
-    extrato += f"Saque : R$ {quantia:.2f}\n"
-    print(f"Quantia sacada! \nSaldo Atual: R$ {saldo}\nNumero de saques {numero_saques}")
-    return saldo, numero_saques, extrato
+    def realizar_transacao(self, conta, transacao):
+        transacao.registrar(conta)
 
-def visualizar_extrato(extrato, limite, saldo):
-    print(f"{extrato}\n----------------\n\nLimite Disponível: {limite}\nSaldo atual: R$ {saldo}")
+    def adicionar_conta(self, conta):
+        self.contas.append(conta)
 
-while True:
-    print("""
-[1] - Depositar
-[2] - Sacar
-[3] - Visualizar extrato
-[0] - Sair
-""")
+class PessoaFisica(Cliente):
+    def __init__(self, cpf, nome, data_nascimento, endereco):
+        super().__init__(endereco)
+        self.cpf = cpf
+        self.nome = nome
+        self.data_nascimento = data_nascimento
 
-    option = int(input("Digite a opção: "))
-    if option == 1:
-        quantia = int(input("Digite a quantidade a depositar: "))
-        saldo, limite, extrato = depositar_dinheiro(quantia, saldo, limite, extrato)
-    elif option == 2:
-        quantia = int(input("Digite a quantidade a sacar: "))
-        saldo, numero_saques, extrato = sacar_dinheiro(quantia, saldo, numero_saques, limite, extrato)
-    elif option == 3:
-        visualizar_extrato(extrato, limite, saldo)
-    elif option == 0:
-        print("Saindo...")
-        break
-    else:
-        print("Opção inválida.")
+class Historico:
+    def __init__(self):
+        self.transacoes = []
+
+    def adicionar_transacao(self, transacao):
+        self.transacoes.append({
+            "tipo": transacao.__class__.__name__,
+            "valor": transacao.valor,
+            "data": datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        })
+
+
+class Conta:
+    def __init__(self, numero, agencia, cliente):
+        self._saldo = 0
+        self.numero = numero
+        self.agencia = agencia
+        self._cliente = cliente
+        self._historico = Historico()
+
+    @property
+    def saldo(self):
+        return self._saldo
+
+    @classmethod
+    def nova_conta(cls, cliente, numero):
+        return cls(numero, "0001", cliente)
+
+    def sacar(self, valor):
+        saldo = self.saldo
+        saldo_excedido = valor > saldo
+
+        if saldo_excedido:
+            print("\nSaldo insuficiente!")
+
+        elif valor > 0:
+            self._saldo -= valor
+            print("\nSaque realizado com sucesso")
+            return True
+        else:
+            print("O valor inserido é inválido")
+        return False
+
+    def depositar(self, valor):
+        if valor > 0:
+            self._saldo += valor
+            print("\nValor depositado com sucesso!")
+        else:
+            print("\n Valor inválido")
+            return False
+        return True
+
+class ContaCorrente(Conta):
+    def __init__(self, numero, cliente, limite=500, limite_saques=3):
+        super().__init__(numero, "0001", cliente)
+        self.limite = limite
+        self.limite_saques = limite_saques
+
+    def sacar(self, valor):
+        numero_saques = len(
+            [transacao for transacao in self._historico.transacoes
+             if transacao["tipo"] == Saque.__name__]
+        )
+
+        limite_excedido = valor > self.limite
+        saque_excedido = numero_saques >= self.limite_saques
+
+        if limite_excedido:
+            print("\nO valor do saque excedeu o limite!")
+
+        elif saque_excedido:
+            print("\nQuantia máxima de saques foi excedida!")
+
+        else:
+            resultado = super().sacar(valor)
+            if resultado:
+                self._historico.adicionar_transacao(Saque(valor))
+            return resultado
+        return False
+
+class Transacao(ABC):
+    @property
+    @abstractmethod
+    def valor(self):
+        pass
+
+    @abstractmethod
+    def registrar(self, conta):
+        pass
+
+class Saque(Transacao):
+    def __init__(self, valor):
+        self._valor = valor
+
+    @property
+    def valor(self):
+        return self._valor
+
+    def registrar(self, conta):
+        sucesso = conta.sacar(self.valor)
+        if sucesso:
+            conta._historico.adicionar_transacao(self)
+
+class Deposito(Transacao):
+    def __init__(self, valor):
+        self._valor = valor
+
+    @property
+    def valor(self):
+        return self._valor
+
+    def registrar(self, conta):
+        sucesso = conta.depositar(self.valor)
+        if sucesso:
+            conta._historico.adicionar_transacao(self)
+
+cliente = PessoaFisica(
+    cpf="12345678900",
+    nome="Gabriel Grécia",
+    data_nascimento="2000-01-01",
+    endereco="Rua Exemplo, 123"
+)
+
+conta = ContaCorrente(numero=1, cliente=cliente)
+cliente.adicionar_conta(conta)
+
+deposito = Deposito(1000)
+cliente.realizar_transacao(conta, deposito)
+
+saque = Saque(300)
+cliente.realizar_transacao(conta, saque)
+
+print("Saldo atual:", conta.saldo)
+print("Transações:")
+for t in conta._historico.transacoes:
+    print(t)
