@@ -27,9 +27,8 @@ class Historico:
         self.transacoes.append({
             "tipo": transacao.__class__.__name__,
             "valor": transacao.valor,
-            "data": datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+            "data": datetime.now()
         })
-
 
 class Conta:
     def __init__(self, numero, agencia, cliente):
@@ -53,7 +52,6 @@ class Conta:
 
         if saldo_excedido:
             print("\nSaldo insuficiente!")
-
         elif valor > 0:
             self._saldo -= valor
             print("\nSaque realizado com sucesso")
@@ -79,24 +77,17 @@ class ContaCorrente(Conta):
 
     def sacar(self, valor):
         numero_saques = len(
-            [transacao for transacao in self._historico.transacoes
-             if transacao["tipo"] == Saque.__name__]
+            [t for t in self._historico.transacoes if t["tipo"] == "Saque"]
         )
-
         limite_excedido = valor > self.limite
         saque_excedido = numero_saques >= self.limite_saques
 
         if limite_excedido:
             print("\nO valor do saque excedeu o limite!")
-
         elif saque_excedido:
             print("\nQuantia máxima de saques foi excedida!")
-
         else:
-            resultado = super().sacar(valor)
-            if resultado:
-                self._historico.adicionar_transacao(Saque(valor))
-            return resultado
+            return super().sacar(valor)
         return False
 
 class Transacao(ABC):
@@ -106,8 +97,21 @@ class Transacao(ABC):
         pass
 
     @abstractmethod
-    def registrar(self, conta):
+    def executar(self, conta):
         pass
+
+    def registrar(self, conta):
+        hoje = datetime.now().date()
+        transacoes_hoje = [
+            t for t in conta._historico.transacoes
+            if isinstance(t["data"], datetime) and t["data"].date() == hoje
+        ]
+        if len(transacoes_hoje) >= 10:
+            print("\nLimite diário de transações atingido. Tente novamente amanhã.")
+            return
+        sucesso = self.executar(conta)
+        if sucesso:
+            conta._historico.adicionar_transacao(self)
 
 class Saque(Transacao):
     def __init__(self, valor):
@@ -117,10 +121,8 @@ class Saque(Transacao):
     def valor(self):
         return self._valor
 
-    def registrar(self, conta):
-        sucesso = conta.sacar(self.valor)
-        if sucesso:
-            conta._historico.adicionar_transacao(self)
+    def executar(self, conta):
+        return conta.sacar(self.valor)
 
 class Deposito(Transacao):
     def __init__(self, valor):
@@ -130,10 +132,8 @@ class Deposito(Transacao):
     def valor(self):
         return self._valor
 
-    def registrar(self, conta):
-        sucesso = conta.depositar(self.valor)
-        if sucesso:
-            conta._historico.adicionar_transacao(self)
+    def executar(self, conta):
+        return conta.depositar(self.valor)
 
 cliente = PessoaFisica(
     cpf="12345678900",
@@ -145,13 +145,15 @@ cliente = PessoaFisica(
 conta = ContaCorrente(numero=1, cliente=cliente)
 cliente.adicionar_conta(conta)
 
-deposito = Deposito(1000)
-cliente.realizar_transacao(conta, deposito)
+for i in range(12):
+    deposito = Deposito(100)
+    cliente.realizar_transacao(conta, deposito)
 
-saque = Saque(300)
+saque = Saque(50)
 cliente.realizar_transacao(conta, saque)
 
-print("Saldo atual:", conta.saldo)
-print("Transações:")
+print(f"\nSaldo atual: R${conta.saldo:.2f}")
+print("\nTransações do dia:")
 for t in conta._historico.transacoes:
-    print(t)
+    data_formatada = t["data"].strftime("%d/%m/%Y %H:%M:%S")
+    print(f'{t["tipo"]} de R${t["valor"]:.2f} em {data_formatada}')
